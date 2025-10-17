@@ -355,6 +355,47 @@ class StickyNotesApp:
         pin_button = tk.Button(control_frame, text="Unpin" if is_pinned[0] else "Pin", command=toggle_pin, bg="#007bff", fg="white", font=("Arial", 8))
         pin_button.pack(side=tk.LEFT, padx=2)
 
+        # Transparency control (blended into note)
+        transparency_frame = tk.Frame(window, bg=note.get("color", "#FFFF99"), height=25)
+        transparency_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+        
+        # Transparency slider that blends in
+        current_alpha = note.get("transparency", 1.0)
+        transparency_var = tk.DoubleVar(value=current_alpha)
+        
+        # Label with subtle styling
+        transparency_label_min = tk.Label(transparency_frame, text="○", font=("Arial", 8), bg=note.get("color", "#FFFF99"), fg="#888")
+        transparency_label_min.pack(side=tk.LEFT, padx=(0, 5))
+        
+        transparency_slider = tk.Scale(
+            transparency_frame, 
+            from_=0.3, 
+            to=1.0, 
+            resolution=0.05,
+            orient=tk.HORIZONTAL,
+            variable=transparency_var,
+            showvalue=False,
+            bg=note.get("color", "#FFFF99"),
+            highlightthickness=0,
+            borderwidth=0,
+            troughcolor="#d3d3d3",  # Subtle trough
+            sliderrelief=tk.FLAT,
+            width=10,
+            length=120
+        )
+        transparency_slider.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        transparency_label_max = tk.Label(transparency_frame, text="●", font=("Arial", 8), bg=note.get("color", "#FFFF99"), fg="#888")
+        transparency_label_max.pack(side=tk.LEFT, padx=(5, 0))
+        
+        def update_transparency(val):
+            alpha = float(val)
+            window.attributes("-alpha", alpha)
+            self.notes[note_id]["transparency"] = alpha
+            save_note()
+        
+        transparency_slider.config(command=update_transparency)
+        window.attributes("-alpha", current_alpha)
 
         # Formatting Toolbar
         formatting_frame = tk.Frame(window, bg=note.get("color", "#FFFF99"))
@@ -484,6 +525,10 @@ class StickyNotesApp:
             control_frame.configure(bg=color)
             title_entry.configure(bg=color)
             formatting_frame.configure(bg=color)
+            transparency_frame.configure(bg=color)
+            transparency_label_min.configure(bg=color)
+            transparency_slider.configure(bg=color)
+            transparency_label_max.configure(bg=color)
 
         tk.Button(control_frame, text="Color", command=lambda: self._show_color_chooser(window, [note_id], apply_color_to_widgets), bg="#666", fg="white", font=("Arial", 8)).pack(side=tk.LEFT, padx=2)
         tk.Button(control_frame, text="Delete", command=lambda: delete_note(note_id, window), bg="#f44336", fg="white", font=("Arial", 8)).pack(side=tk.LEFT, padx=2)
@@ -778,7 +823,7 @@ class StickyNotesApp:
                                     button_text = sub_widget.cget("text")
                                     if button_text not in ["Color", "Delete", "B", "I", "U", "Pin", "Unpin"] and not button_text.startswith("A"):
                                         sub_widget.configure(bg=color)
-                                elif isinstance(sub_widget, tk.Entry):
+                                elif isinstance(sub_widget, (tk.Entry, tk.Label, tk.Scale)):
                                     sub_widget.configure(bg=color)
                         elif isinstance(widget, tk.Text):
                             widget.configure(bg=color)

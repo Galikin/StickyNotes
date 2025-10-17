@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['sticky_notes_app.py'],
+    ['pyqt_sticky_notes.py'],
     pathex=[],
     binaries=[],
     datas=[('icon.png', '.')],
