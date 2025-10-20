@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 from datetime import datetime
 from threading import Thread
+import time
+
+# Suppress Qt DPI warning on Windows
+os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
 
 # PyQt6 imports
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -19,6 +23,10 @@ from PIL.ImageQt import ImageQt
 # Global hotkey support
 from pynput import keyboard
 from pynput.keyboard import Key, KeyCode
+
+# Auto-copy support
+import pyautogui
+import platform
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -101,7 +109,7 @@ class NoteWindow(QWidget):
         self.transparency_slider = QSlider(Qt.Orientation.Horizontal)
         self.transparency_slider.setRange(30, 100) # From 0.3 to 1.0
         transparency_layout.addWidget(self.transparency_slider)
-        transparency_layout.addWidget(QLabel("●"))
+        transparency_layout.addWidget(QLabel("⬤"))
         
         self.main_layout.addWidget(transparency_frame)
 
@@ -396,17 +404,70 @@ class StickyNotesApp:
         self.init_manager_ui()
         self.restore_open_notes()
 
+    def copy_highlighted_text(self):
+        """
+        Simulates Ctrl+C (or Cmd+C on Mac) to copy highlighted text.
+        Returns a tuple: (plain_text, html_text)
+        """
+        system = platform.system()
+        
+        try:
+            # Clear clipboard first to ensure we can detect new content
+            clipboard = QApplication.clipboard()
+            clipboard.clear()
+            
+            # Small delay before copying
+            time.sleep(0.05)
+            
+            # Simulate copy command based on OS
+            if system == "Darwin":  # macOS
+                pyautogui.hotkey('command', 'c')
+            else:  # Windows and Linux
+                pyautogui.hotkey('ctrl', 'c')
+            
+            # Longer pause to ensure copy completes
+            time.sleep(0.3)
+            
+            # Try to get rich text (HTML) first, fallback to plain text
+            mime_data = clipboard.mimeData()
+            
+            html_text = None
+            plain_text = clipboard.text()
+            
+            if mime_data.hasHtml():
+                html_text = mime_data.html()
+                print(f"[DEBUG] Copied HTML formatting!")
+            
+            print(f"[DEBUG] Copied text: '{plain_text[:50] if plain_text else 'EMPTY'}'...")
+            
+            return (plain_text if plain_text else "", html_text)
+            
+        except Exception as e:
+            print(f"[ERROR] Error copying text: {e}")
+            import traceback
+            traceback.print_exc()
+            return ("", None)
+
     def start_hotkey_listener(self):
         """Start the global hotkey listener in a background thread"""
         def on_activate():
-            # Get clipboard content
-            clipboard = QApplication.clipboard()
-            selected_text = clipboard.text()
+            # Run copy in a separate thread with delay to allow keys to release
+            def delayed_copy():
+                # Wait for keys to be released
+                time.sleep(0.2)
+                
+                # Automatically copy highlighted text (returns plain and HTML)
+                plain_text, html_text = self.copy_highlighted_text()
+                
+                # Emit signal to create note (thread-safe)
+                # Pass both plain and HTML as a tuple
+                content = (plain_text, html_text)
+                self.hotkey_signaler.create_note_signal.emit(str(content))
             
-            # Emit signal to create note (thread-safe)
-            self.hotkey_signaler.create_note_signal.emit(selected_text)
+            # Start in background thread
+            Thread(target=delayed_copy, daemon=True).start()
         
-        # Define the hotkey combination: Ctrl+Shift+C
+        # Define the hotkey combination: Ctrl+Alt+N
         hotkey = keyboard.HotKey(
             keyboard.HotKey.parse('<ctrl>+<alt>+n'),
             on_activate
@@ -427,16 +488,34 @@ class StickyNotesApp:
         """Create a new note and optionally populate it with content"""
         note_id = str(int(datetime.now().timestamp() * 1000))
         
+        # Parse content - it comes as a string representation of tuple
+        plain_text = ""
+        html_text = None
+        
+        try:
+            # Try to evaluate the string as a tuple
+            import ast
+            parsed = ast.literal_eval(content)
+            if isinstance(parsed, tuple) and len(parsed) == 2:
+                plain_text, html_text = parsed
+        except:
+            # Fallback: treat as plain text
+            plain_text = content
+        
         # Determine title based on content
         title = "Quick Note"
-        if content and content.strip():
+        if plain_text and plain_text.strip():
             # Use first line or first 30 chars as title
-            first_line = content.strip().split('\n')[0]
+            first_line = plain_text.strip().split('\n')[0]
             title = first_line[:30] + ('...' if len(first_line) > 30 else '')
+        
+        # Use HTML if available, otherwise plain text
+        content_to_save = html_text if html_text else plain_text
         
         self.notes[note_id] = {
             "title": title,
-            "content_html": content if content else "",
+            "content_html": content_to_save if content_to_save else "",
+            "content_text": plain_text,
             "created": datetime.now().isoformat(),
             "color": "#FFFF99",
             "is_new": True,
@@ -540,7 +619,7 @@ class StickyNotesApp:
         main_layout.addWidget(header)
         
         # Info label for hotkey
-        hotkey_info = QLabel("💡 Press Ctrl+Alt+N anywhere to create a quick note from something copied!")
+        hotkey_info = QLabel("💡 Highlight text anywhere and press Ctrl+Alt+N to create a quick note!")
         hotkey_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hotkey_info.setStyleSheet("color: #666; font-size: 10px; padding: 5px;")
         main_layout.addWidget(hotkey_info)
